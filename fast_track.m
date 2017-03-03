@@ -233,7 +233,7 @@ x0 = interleave(J0,V0,par);
 
 % estimation
 % (fmincon)
-opt = optimset('LargeScale','on', ...
+opt = optimoptions('fmincon','Algorithm','trust-region-reflective', ...
     'Gradobj','on','Hessian','on', ...
     'Display','none', ...
     'TolFun',2e-3, ...
@@ -345,8 +345,8 @@ switch nargout
         dDjtdV = [-dKdV; dLdV];
     case 3
         [I dIdJ] = subsample(J,par);
-        [K dKdJ dKdV d2KdVdJ d2KdV2] = predict(J,V,par,false); %#ok<NASGU>
-        [L dLdJ dLdV d2LdVdJ d2LdV2] = predict(J,V,par,true); %#ok<NASGU>
+        [K dKdJ dKdV d2KdVdJ d2KdV2] = predict(J,V,par,false);  %#ok<ASGLU>
+        [L dLdJ dLdV d2LdVdJ d2LdV2] = predict(J,V,par,true);  %#ok<ASGLU>
         [Djt Djx Dvt Dvx dDjtdJ dDjxdJ dDvtdV dDvxdV] = differences(J,V,K,L,par,dKdJ,dLdJ);
         dDjtdV = [-dKdV; dLdV];
 end

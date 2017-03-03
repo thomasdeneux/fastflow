@@ -65,7 +65,8 @@ classdef madflow < interface
         function init_grob(M)
             % GENERAL
             bgcolor = [.8 .8 .7];
-            for i=1:1, M.grob.panel(i) = uipanel('backgroundcolor',bgcolor); end
+            M.grob.panel = axes('color',bgcolor,'xcolor',bgcolor,'ycolor',bgcolor, ...
+                'xtick',[],'ytick',[],'hittest','off');
             info = {'vessels','parameters','trials','results','sections'};
             for i=1:length(info)
                 M.grob.info(i) = uicontrol('style','text','string',info{i});

@@ -455,8 +455,10 @@ classdef fast_data < hgsetget
                             ktrial = ktrial(2:2:end);
                     end
                     x = getdataf(D,ktrial);
-                    b = (x(1,1,:)~=0);
-                    x = mean(x(:,:,b),3);
+                    if ~isempty(x)
+                        b = (x(1,1,:)~=0);
+                        x = mean(x(:,:,b),3);
+                    end
                 else
                     % use local storage, need to gather several results!
                     ntrial = 0;
