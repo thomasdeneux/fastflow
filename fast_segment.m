@@ -1,5 +1,6 @@
 function [out evol] = fast_segment(varargin)
-% function edge = fast_segment(mask,poly|CS[,ha][,par])
+% function edge = fast_segment([mask,]poly|CS[,ha][,par])
+% function par = fast_segment('par')
 % function paramstr = fast_segment('parameters')
 %---
 % Input
@@ -7,6 +8,7 @@ function [out evol] = fast_segment(varargin)
 %           and negative outside of the vessels, typically use mask =
 %           fast_structure(CS), where CS is the reference vasculature
 %           image)
+% - image   raw data image
 % - poly    2xn array - defines the user initialization of the vessel
 % - CS      image - if specified (alternatively to 'poly'), the user is
 %           prompted to specify this initialization with the mouse
@@ -19,69 +21,55 @@ function [out evol] = fast_segment(varargin)
 % - paramstr  returns typical parameter values in the form of a character
 %           array which can be evaluated
 
-paramstr = {
-    '% spacing between points'
-    'DX = .5;'
-    '% weights for evolution'
-    'KEX = .02;    % extremities'
-    'KEQ = .1/DX; % equally spaced'
-    'KSS = .2/DX; % smoothing'
-    'KSD = 1;     % smoothing'
-    'KEN = 5e-3;   % energy'
-    '% global factor for parameters above'
-    'DT = 1;'
-    '% smoothing parameters'
-    'LSS = 5/DX;'
-    'LSD = 20/DX;'
-    'LEN = 5/DX;'
-    '% discouragement for negative regions'
-    'WNEG = 1;'
-    '% constraints on vessel diameter'
-    'MINHALFD = .5;'
-    'MAXHALFD = 4;'
-    '% convergence detection'
-    'CONVTHR = 2e-2;'
-    '% resampling'
-    'DX2 = .8;'
-    '% narrow tube'
-    'WFACT = .7;'
-    }; 
-hlist = [];
-
-if nargin==1 && strcmp(varargin{1},'parameters')
-    out = paramstr;
+if nargin==1 && ischar(varargin{1})
+    switch varargin{1}
+        case 'parameters'
+            out = defaultpar_string;
+        case 'par'
+            out = defaultpar;
+        otherwise
+            error('unknonwn flag "%s"', varargin{1})
+    end
     return
-end
-
-mask = varargin{1};
-mask = mask/nstd(mask(:)); % normalize energy field by STD
-for i=3:length(varargin)
-    x = varargin{i};
-    if iscell(x) || isstruct(x)
-        paramstr = x;
-    elseif ischar(x) 
-        paramstr = cellstr(x);
+else
+    if nargin<2 || (ischar(varargin{2}) || isstruct(varargin{2}))
+        % no energy mask provided, compute it
+        x = double(varargin{1}); % image
+        mask = fast_structure(x);
+        karg = 2;
     else
-        hlist = x(:)'; % list of axes handles
+        mask = varargin{1};
+        x = varargin{2};        % image or polygon initialization
+        karg = 3;
     end
 end
 
-x = varargin{2};
+mask = mask/nstd(mask(:)); % normalize energy field by STD
+par = defaultpar;
+hlist = [];
+for i=karg:length(varargin)
+    a = varargin{i};
+    if iscell(a) || isstruct(a)
+        par = a;
+    elseif ischar(a) 
+        par = cellstr(a);
+    else
+        hlist = a(:)'; % list of axes handles
+    end
+end
+
 if size(x,1)==2
     poly = x;
 elseif size(x,2)==2;
     poly = x';
 else
     CS = x;
-    figure(972);
-    clf
-    set(972,'numbertitle','off','name','fast_segment.m', ...
-        'position',[85 175 560 420])
+    hf = fn_figure('FAST_SEGMENT');
+    figure(hf)
     fn_imvalue image
-    imagesc(CS')
+    subplot(121), imagesc(CS')
+    subplot(122), imagesc(mask')
     h = msgbox({'Select region, press OK,','then select vessel initialization'});
-    delete(findobj(h,'type','uimenu'))
-    set(h,'position',[530 375 172 64])
     waitfor(h)
     poly = fn_mouse('poly');
     if size(poly,1)~=2, error programming, end
@@ -89,18 +77,19 @@ else
 end
 
 % parameters
-if iscell(paramstr)
-    for i = 1:length(paramstr)
-        eval(paramstr{i});
+if iscell(par)
+    for i = 1:length(par)
+        eval(par{i});
     end
 else
     % structure
-    F = fieldnames(paramstr);
+    F = fieldnames(par);
     for k=1:length(F)
-        f = F{k}; val = paramstr.(f); %#ok<NASGU>
+        f = F{k}; val = par.(f); %#ok<NASGU>
         eval([f '=val;']);
     end
 end
+
 % ENERGY TO MAXIMIZE
 % E = sum_insidex(mask)
 % dE/dx = sum_x(mask*dxtowardsoutside)
@@ -267,5 +256,56 @@ hold on
 quiver(x(1,:),x(2,:),dx(1,:),dx(2,:),'tag','setarrows','erasemode','xor')
 hold off
 
+%---
+function paramstr = defaultpar_string()
+
+paramstr = {
+    '% spacing between points'
+    'DX = .5;'
+    '% weights for evolution'
+    'KEX = .02;    % extremities'
+    'KEQ = .1/DX;  % equally spaced'
+    'KSS = .2/DX;  % snake smoothing'
+    'KSD = 1;      % vessel diameter smoothing'
+    'KEN = 5e-3;   % energy factor'
+    '% global factor for parameters above'
+    'DT = 1;'
+    '% smoothing parameters'
+    'LSS = 5/DX;'
+    'LSD = 20/DX;'
+    'LEN = 5/DX;'
+    '% discouragement for negative regions'
+    'WNEG = 1;'
+    '% constraints on vessel diameter'
+    'MINHALFD = .5;'
+    'MAXHALFD = 4;'
+    '% convergence detection'
+    'CONVTHR = 2e-2;'
+    '% resampling'
+    'DX2 = .8;'
+    '% narrow tube'
+    'WFACT = .7;'
+    }; 
+
+%---
+function par = defaultpar
+
+par = struct;
+par.DX = .5;
+par.KEX = .02;    % extremities
+par.KEQ = .1/par.DX; % equally spaced
+par.KSS = .2/par.DX; % smoothing
+par.KSD = 1;     % smoothing
+par.KEN = 5e-3;   % energy
+par.DT = 1;
+par.LSS = 5/par.DX;
+par.LSD = 20/par.DX;
+par.LEN = 5/par.DX;
+par.WNEG = 1;
+par.MINHALFD = .5;
+par.MAXHALFD = 4;
+par.CONVTHR = 2e-2;
+par.DX2 = .8;
+par.WFACT = .7;
 
 

@@ -14,6 +14,8 @@ function fn_setpropertyandmark(obj,propertyname,hu,value)
 %                   can be of the form 'prop.subfield1.etc'
 % - hu              control or uimenu handle
 % - value           boolean, or 'toggle' to inverse the value [default]
+%
+% See also fn_propcontrol
 
 % Thomas Deneux
 % Copyright 2007-2012
