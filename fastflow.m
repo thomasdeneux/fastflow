@@ -11,6 +11,7 @@ classdef fastflow < hgsetget
         segmentpar
         parameters
         files
+        filesoption = struct;
         cond
         nx
         ny
@@ -396,6 +397,22 @@ classdef fastflow < hgsetget
                 S.files = strvcat(a.name); %#ok<VCAT>
                 S.nexp = size(S.files,1);
                 
+                % check for color video
+                fname = deblank(S.files(1,:)); % first file
+                if strcmpi(fn_fileparts(fname,'ext'),'.avi')
+                    v = VideoReader(fullfile(S.datadir,fname));
+                    if ~strfind(v.VideoFormat,'RGB')
+                        error('Currently only video format with 3 color channels is handled. Please edit code for new format.')
+                    end
+                    answer = questdlg('Video appear to have 3 color channels. How do you want to convert it to grayscale?', ...
+                        '', 'Take the first channel', 'Average over 3 channels (more memory needed)', 'Take the first channel');
+                    if isempty(answer)
+                        disp 'interrupted'
+                        return
+                    end
+                    S.filesoption.average_rgb = strcmp(answer, 'Average over 3 channels (more memory needed)');    
+                end
+                
                 % conditions
                 conds = [a.cond]';
                 tmp = unique(conds)';
@@ -414,7 +431,7 @@ classdef fastflow < hgsetget
             end
             
             % 3 - basic data
-            if ~status(S,'base')
+            if ~status(S,'base')               
                 loadrawdata(S,1)
                 %                 fname = deblank([S.datadir S.files(1,:)]);
                 %                 [dum1 dum2 ext] = fileparts(fname); %#ok<ASGLU>
@@ -996,10 +1013,10 @@ classdef fastflow < hgsetget
             if ~exist(fname,'file'),
                 if nargout==1,return, else error('cannot find raw data file'), end
             end
-            switch ftype
-                case 'BLK'
+            switch lower(ftype)
+                case 'blk'
                     fast_loaddata_global(fname);
-                case 'BLKcond'
+                case 'blkcond'
                     Y = oi_loadBLK(fname,'array','double',token{1}{1});
                 case 'mat'
                     v = load(fname);
@@ -1008,11 +1025,14 @@ classdef fastflow < hgsetget
                     Y = v.(F{1});
                     if ~strcmp(class(Y),'double'), Y = single(Y); end
                 case 'avi'
-                    x = mmread(fname);
-                    x = cat(4,x.frames.cdata);
-                    x = squeeze(mean(x,3)); % transform color movie into unidim movie
+                    x = fn_readmovie(fname, 'nopermute');
+                    if S.filesoption.average_rgb
+                        x = squeeze(mean(x,3)); % transform color movie into unidim movie
+                    else
+                        x = squeeze(x(:,:,1,:));
+                    end
                     if isa(x,'double'), x = single(x); end
-                    Y = permute(x,[2 1 3]);
+                    Y = permute(x, [2 1 3]);
                 otherwise
                     error('cannot open file of type ''%s''',ftype)
             end

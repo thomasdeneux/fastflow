@@ -375,7 +375,6 @@ classdef fast_edgesmouse < interface
             hl(1) = line(p(1),p(2),'parent',E.ha(1));
             hl(2) = line(p(1),p(2),'parent',E.ha(2));
             set(hl,'marker','.','markersize',18,'color','r', ...
-                'erasemode','background', ...
                 'userdata',i, ...
                 'hittest','on','buttondownfcn',@(hp,evnt)anchorclick(E,i))
         end
@@ -398,7 +397,6 @@ classdef fast_edgesmouse < interface
             vslcolor(E,hl,edge)
             set(hl(2,:),'col','k')
             set(hl(:,4),'userdata',i, ...
-                'erasemode','background', ...
                 'hittest','on','buttondownfcn',@(hp,evnt)vslclick(E,i), ...
                 'uicontextmenu',E.vslmenu)
         end
@@ -570,7 +568,7 @@ classdef fast_edgesmouse < interface
             hl = [0 0];
             for i=1:2
                 hl(i) = line(poly(1,:),poly(2,:),'parent',E.ha(i), ...
-                    'color',[.5 .5 .5],'erasemode','xor');
+                    'color',[.5 .5 .5]);
             end
         end
         function drawpoly(E)            

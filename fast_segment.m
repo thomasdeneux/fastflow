@@ -112,9 +112,9 @@ halfd  = ones(1,np);
 hl = zeros(length(hlist),3);
 for i = 1:length(hlist)
     axes(hlist(i))
-    hl(i,1) = line('color','b','erasemode','xor','linestyle','--');
-    hl(i,2) = line('color','b','erasemode','xor','linestyle','--');
-    hl(i,3) = line('color','b','erasemode','xor');
+    hl(i,1) = line('color','b','linestyle','--');
+    hl(i,2) = line('color','b','linestyle','--');
+    hl(i,3) = line('color','b');
 end
 setline(hl,snake,halfd)
 
@@ -134,9 +134,16 @@ for i=1:niter
     dsnake1 = dsnake .* repmat(dnormd,2,1);
     
     % snake smoothness
+%     d2snake = diff(snake,2,2);
     d2snake = gradient(dsnake);
-    % local component + regional component!
-    dsnake2 = d2snake + smooth(d2snake,LSS);
+    % to minimize second derivative, extremety points should in fact move
+    % in the opposite direction of their first neighbor
+%     dsnake2 = [-d2snake(:,1) d2snake d2snake(:,end)];
+%     dsnake2 = [zeros(2,1) d2snake zeros(2,1)];
+    dsnake2 = d2snake;
+    dsnake2(:,[1 end]) = 0;
+    % local component + regional component to avoid strong oscillations
+    dsnake2 = dsnake2 + smooth(dsnake2,LSS);
     % ponderation by the width!
     dsnake2 = dsnake2.*repmat(halfd,2,1);
     
@@ -163,6 +170,11 @@ for i=1:niter
     dsnake(:,1) = dsnake(:,1) + KEX*(poly(:,1)-snake(:,1));
     dsnake(:,end) = dsnake(:,end) + KEX*(poly(:,end)-snake(:,end));
 
+%     figure(1)
+%     subplot(121)
+%     plot([dsnake(1,:); dsnake1(1,:)*KEQ; KSS*dsnake2(1,:); KEN*dsnake3(1,:)]')
+%     subplot(122)
+%     plot([dsnake(2,:); dsnake1(2,:)*KEQ; KSS*dsnake2(2,:); KEN*dsnake3(2,:)]')
     pause(.02)
     
     % update
@@ -253,7 +265,7 @@ function setarrows(x,dx)
 
 delete(findobj(gca,'tag','setarrows'))
 hold on
-quiver(x(1,:),x(2,:),dx(1,:),dx(2,:),'tag','setarrows','erasemode','xor')
+quiver(x(1,:),x(2,:),dx(1,:),dx(2,:),'tag','setarrows')
 hold off
 
 %---

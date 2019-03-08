@@ -451,6 +451,8 @@ classdef madflow < interface
                 'callback',@(u,evt)vessels_segmentpar(M,'getdefault'));
             mv(end+1) = uimenu(m,'label','make current default', ...
                 'callback',@(u,evt)vessels_segmentpar(M,'setdefault'));
+            mv(end+1) = uimenu(m,'label','delete current','separator','on', ...
+                'callback',@(u,evt)vessels_manage(M,'current','delete'));
             M.menus.vessels = m;
             M.vsl.menuitems = mv;
             M.scan.menuitems = mf;
@@ -520,7 +522,7 @@ classdef madflow < interface
             if isempty(M.kedge), return, end
             if M.im.doim
                 % make line normal (thinner)
-                set(M.vsl.hl(M.kedge,:),'linewidth',1)
+                try set(M.vsl.hl(M.kedge,:),'linewidth',1), end
             end
             % no current edge
             M.kedge = [];
@@ -538,7 +540,9 @@ classdef madflow < interface
             if k==0, return, end 
             % unmark current first (this is only part of 'vessels_cleanup'
             % code)
-            if M.im.doim, set(M.vsl.hl(M.kedge,:),'linewidth',1), end
+            if M.im.doim
+                try set(M.vsl.hl(M.kedge,:),'linewidth',1), end
+            end
             set(M.grob.hulinshift,'value',1)
             M.kflow = [];
             % properties
@@ -596,6 +600,7 @@ classdef madflow < interface
                     % compute frame average
                     loadtrial(M.S,M.ktrial)
                     M.im.fravg = mean(Y,3);
+                    if ~isa(Y,'double'), M.im.fravg = single(M.im.fravg); end
                     % cliping 
                     set(ha,'clim',[-1 1]*.02)
                     % start movie
@@ -607,7 +612,7 @@ classdef madflow < interface
                     start(M.im.timer)
             end
             function im_movieframe
-                frame = Y(:,:,M.im.kframe) ./ M.im.fravg;
+                frame = fn_float(Y(:,:,M.im.kframe)) ./ M.im.fravg;
                 frcut = frame(6:end-5,6:end-5);
                 m = mean(frcut(~isnan(frcut)));
                 frame(isnan(m)) = m;
@@ -688,7 +693,7 @@ classdef madflow < interface
                     M.polysel = struct;
                     M.polysel.poly = [p p];
                     M.polysel.hl = line(p(1),p(2),'parent',ha, ...
-                        'color',[.5 .5 .5],'erasemode','xor');
+                        'color',[.5 .5 .5]);
                     set(M.hf,'windowbuttonmotionfcn',@(h,evnt)vessels_selectpoly(M,ha,'move'))
                 case 'move'
                     M.polysel.poly(:,end) = p;
@@ -804,7 +809,13 @@ classdef madflow < interface
         % vessel menu actions
         function vessels_manage(M,hp,flag,value)
             if ~isempty(hp)
-                ivessel = get(hp,'userdata');
+                if ischar(hp)
+                    ivessel = M.kedge;
+                elseif ishandle(hp)
+                    ivessel = get(hp,'userdata');
+                else
+                    error('argument')
+                end
                 ei = M.S.edges(ivessel);
             end
             switch flag
@@ -1102,7 +1113,7 @@ classdef madflow < interface
                 'hittest','on','buttondownfcn',@(u,e)parest_joingroup(M))
             M.parest.hlgroupmark = line(1,1,'parent',M.grob.haflags, ...
                 'marker','s','markersize',8,'linestyle','none', ...
-                'color','k','erasemode','xor');
+                'color','k');
             if ~isempty(M.e)
                 set(M.parest.hlgroupmark,'xdata',getflagnumber(M.e))
             else

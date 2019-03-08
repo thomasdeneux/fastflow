@@ -1,6 +1,6 @@
-function y = fast_interptube(Y,snake,halfd,tubea,tubeb)
-% function y = fast_interptube(Y,snake,halfd,tubea,tubeb)
-% function y = fast_interptube(Y,edge)
+function z = fast_interptube(Y,snake,halfd,tubea,tubeb)
+% function z = fast_interptube(Y,snake,halfd,tubea,tubeb)
+% function z = fast_interptube(Y,edge)
 
 if nargin==2
     e = snake;
@@ -52,8 +52,11 @@ A.z = H(f);
 % build sparse interpolation matrix
 np = size(snake,2);
 [ni nj nt] = size(Y);
-a = sparse(A.p,double(A.i+ni*(A.j-1)),double(A.z),np,ni*nj);
+ok = ~(A.i < 1 | A.i > ni | A.j < 1 | A.j > nj); % points inside image
+a = sparse(A.p(ok),double(A.i(ok)+ni*(A.j(ok)-1)),double(A.z(ok)),np,ni*nj);
 % interpolation
 Y = reshape(Y,ni*nj,nt);
-y = a*double(Y);
-
+idx = any(a,1); % pixels to use from Y, avoid converting the whole Y to double
+y = double(Y(idx,:));
+z = a(:,idx)*y;
+z(A.p(~ok),:) = NaN;

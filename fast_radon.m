@@ -209,9 +209,9 @@ startt = round(linspace(0,nt-deltat,nboxt));
 for ix=1:nboxx
     idxx = floor(nx*(ix-1)/nboxx)+1:floor(nx*ix/nboxx);
     if ix==1
-        idxx = 1:deltax;
+        idxx = 1:nx;
     else
-        idxx = startx(ix)+(1+round(deltax/2-shiftx/2):deltax);
+        idxx = startx(ix)+(1+round(deltax/2-shiftx/2)):nx;
     end
     for it=1:nboxt
         % fill result
@@ -229,10 +229,10 @@ end
 function [hrec hib hlb hic hlc] = firstdisplay(I,delta,angles,doang,speeds,ha,hb,hc)
 
 imagesc(I,'parent',ha);
-hrec = rectangle('parent',ha,'edgecolor','b','erasemode','xor');
+hrec = rectangle('parent',ha,'edgecolor','b');
 box = zeros(delta);
 hib=imagesc(box,'parent',hb);
-hlb = line(0,0,'parent',hb,'erasemode','xor');
+hlb = line(0,0,'parent',hb);
 [R Xp] = radon(box,angles);
 rkeep = (abs(Xp)<delta/2);
 if doang
@@ -245,7 +245,7 @@ else
     for i=1:length(ticks), idx(i) = find(speeds>=ticks(i),1); end
     set(hc,'xtick',idx,'xticklabel',cellstr(num2str(ticks')))
 end
-hlc = line([0 0],Xp([1 end]),'parent',hc,'erasemode','xor');
+hlc = line([0 0],Xp([1 end]),'parent',hc);
 axis(hc,'normal')
 
 
@@ -330,11 +330,11 @@ else
 end
 ha = subplot(2,1,1,'parent',hf);
 imagesc(I,'parent',ha);
-hrec = rectangle('parent',ha,'edgecolor','b','erasemode','xor');
+hrec = rectangle('parent',ha,'edgecolor','b');
 hb=subplot(2,2,3,'parent',hf); 
 box = zeros(delta);
 hib=imagesc(box,'parent',hb);
-hlb = line(0,0,'parent',hb,'erasemode','xor');
+hlb = line(0,0,'parent',hb);
 hc=subplot(2,2,4,'parent',hf); 
 [R Xp] = radon(box,angles);
 rkeep = (abs(Xp)<delta/2);
@@ -348,7 +348,7 @@ else
     for i=1:length(ticks), idx(i) = find(speeds>=ticks(i),1); end
     set(hc,'xtick',idx,'xticklabel',cellstr(num2str(ticks')))
 end
-hlc = line([0 0],Xp([1 end]),'parent',hc,'erasemode','xor');
+hlc = line([0 0],Xp([1 end]),'parent',hc);
 axis(hc,'normal')
 
 % go!
@@ -373,6 +373,7 @@ for ix=1:nsquarex
         if it==1, idxt_in=idxt; else idxt_in=startt(it)+(1+round(delta/2-shiftt/2):delta); end
         V(idxx_in,idxt_in) = v;
         % display
+        disp(get(hudisplay,'value'))
         if ishandle(hf) && get(hudisplay,'value')
             set(hrec,'position',[startt(it)+.5 startx(ix)+.5 delta delta])
             set(hib,'cdata',box)

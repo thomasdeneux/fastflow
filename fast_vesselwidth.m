@@ -11,11 +11,11 @@ function profile = fast_vesselwidth(u,p0)
 % - profile     5 x nt array, Gaussian parameters (width, center,
 %               amplitude, baseline, trend)
 
-u = double(1-u/mean(u(:)));
+u = double(1-u/nmean(u(:)));
 [np nt] = size(u);
 profile = zeros(5,nt);
 % estimate: sigma, center, amplitude, baseline, trend
-xi   =     [np/6   np/2    .1         (u(1,1)+u(np,1))/2  0];
+xi   =     [np/6   np/2    .1         prctil(u(:,1),10)  0];
 xmin =     [1      np/4    0          -1        -1];
 xmax =     [np/4   3*np/4  2          1         1];
 if nargin==2, xi=double(p0); end
@@ -25,14 +25,14 @@ opt = optimset('display','none','GradObj','on');
 nbin = min(100,nt);
 binsize = nt/nbin;
 % loop
-%fn_progress('vessel width',nbin)
+fn_progress('vessel width',nbin)
 for i=[1:nbin nbin-1:-1:1]
-    %fn_progress(i)
+    fn_progress(i)
     
     binidx = 1+round((i-1)*binsize):round(i*binsize);
     ui = mean(u(:,binidx),2);
     
-    xi = fmincon(@(x)gaussianfit(x,ui),xi,[],[],[],[],xmin,xmax,[],opt);
+    xi = fmincon(@(x)gaussianfit_(x,ui),xi,[],[],[],[],xmin,xmax,[],opt);
     profile(:,binidx) = repmat(xi(:),[1 length(binidx)]);
     
     
@@ -59,11 +59,12 @@ end
 
 
 %---
-function [e de] = gaussianfit(x,ui)
+function [e de] = gaussianfit_(x,ui)
 
 xcell = num2cell(x);
 [sigma center amplitude baseline trend] = deal(xcell{:});
 
+ok = ~isnan(ui);
 np = length(ui);
 t = (1:np)';
 
@@ -71,10 +72,13 @@ background = baseline + trend*(t/np-1/2);
 gaussian0  = exp(-(t-center).^2/(2*sigma^2));
 gaussian   = amplitude * gaussian0;
 shape = background + gaussian;
+error = ui - shape;
 
-%figure(99), plot([ui shape]), pause(.005)
+e = sum(error(ok).^2);
 
-e = sum((ui-shape).^2);
+% figure(99)
+% set(99,'tag','no-fn_imvalue')
+% plot([ui shape]), title(num2str(e)), pause(.001)
 
 if nargout==2
     dshape = [ ...
@@ -84,5 +88,5 @@ if nargout==2
         ones(np,1) ...
         (t/np-1/2) ...
         ];
-    de = 2*((shape-ui)'*dshape);
+    de = -2*(error(ok)'*dshape(ok,:));
 end
