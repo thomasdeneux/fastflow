@@ -2,8 +2,14 @@ function fastflow_package
 
 %% Version
 
-version = '2.2.1'; 
+version = '2.2.2'; 
+packagedate = '01-Jun-2019';
 
+if ~strcmp(packagedate,date)
+    disp 'Please update program version'
+    edit fastflow_package
+    return
+end
 
 %% Create empty base folder
 
@@ -61,6 +67,11 @@ deployregular(regularfiles,folder,basedir,'')
 %% Version
 fn_savetext({['This is fastflow version ' version]}, ...
     fullfile(basedir,['fastflow version ' version '.txt']))
+
+%% Open in Windows Explorer
+
+locate(basedir)
+
 
 %---
 function b = copyhelp(fun,target)
