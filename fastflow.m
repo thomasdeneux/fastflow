@@ -28,7 +28,7 @@ classdef fastflow < hgsetget
         isdef = false;
     end
     properties (Access='private')
-        version = 7; % removed the 'fake' field: now movie / line scan / fake edges can coexist!, added the 'isdef' field
+        version = 7;
         stim
         rest
     end
@@ -51,9 +51,6 @@ classdef fastflow < hgsetget
             % few initializations
             set(0,'defaultfigurecolormap',gray(64))
             fn_imvalue image
-           
-            % parameters
-            S.parameters = fastflow.defaultparameters;
         end
     end
     
@@ -63,10 +60,16 @@ classdef fastflow < hgsetget
             S.isdef = false;
             close(S.closefig(ishandle(S.closefig)))
         end
-        function setoptions(S)
-            [dum spec] = fastflow.defaultparameters;
+        function setparameters(S)
+            [~, spec] = fastflow.defaultparameters;
             pars = fn_structedit(S.parameters,spec); 
             if isempty(pars), return, end
+            if pars.saveresampled && ~strcmp(S.registration,'none') && isempty(S.resampledir)
+                disp('Select resampled data directory')
+                S.resampledir = fn_getfile('DIR','Select resampled data directory');
+                if isequal(S.resampledir,0), disp('interrupted'), return, end
+                S.resampledir(end+1) = '/';
+            end
             S.parameters = pars;
             S.id_vol = [];
             saveproject(S)
@@ -157,12 +160,15 @@ classdef fastflow < hgsetget
         function [dpar spec] = defaultparameters
             dpar = struct('registration','isometry', ...
                 'saveresampled',true, ...
-                'volumexbin',2,'volumetbin',10,'volumefrzsub',10, ...
-                'resultavgtrials',true);
-            spec = struct('registration',{{'none' 'isometry(frame)'  'isometry(trial)' 'nonlinear(trial)'}}, ...
-                'volumexbin','stepper 1 1 Inf 1', ...
-                'volumetbin','stepper 1 1 Inf 1', ...
-                'volumefrzsub','stepper 1 1 Inf 1');
+                'resultavgtrials',true, ...
+                'volumexbin',2,'volumetbin',10,'volumefrzsub',10);
+            spec = struct( ...
+                'registration',{{'none' 'isometry(frame)'  'isometry(trial)' 'nonlinear(trial)'} 'Motion correction'}, ...
+                'saveresampled',{'logical' 'Save motion corrected movies'}, ...
+                'resultavgtrials',{'logical', 'Save movies averaged by condition (vs. save all movies concatenated)'}, ...
+                'volumexbin',{'stepper 1 1 Inf 1' 'Movie saving: spatial binning'}, ...
+                'volumetbin',{'stepper 1 1 Inf 1' 'Movie saving: temporal binning'}, ...
+                'volumefrzsub',{'stepper 1 1 Inf 1' 'Movie saving: number of frame for baseline subtraction'});
         end
         function S = loadobj(S)
             % old versions
@@ -202,7 +208,7 @@ classdef fastflow < hgsetget
                 S.isdef = true; % we asssumed that S is correctly defined!
             end
             S.version = 7;
-            % use the current format for parameters
+            % use the current format for movie settings
             S.parameters = fn_structmerge(fastflow.defaultparameters, ...
                 S.parameters,'skip','recursive');
         end
@@ -261,224 +267,209 @@ classdef fastflow < hgsetget
         end
         function inputwidefield(S)
             global Y
+            
             % 1 - data and saving directory
-            if ~status(S,'folders')
-                disp('Select data directory')
-                S.datadir = fn_getfile('DIR','Select data directory');
-                if isequal(S.datadir,0), disp('batch interrupted'), return, end
-                S.datadir(end+1) = '/';
-                disp('Select save directory')
-                S.savedir = fn_getfile('DIR','Select save directory');
-                if isequal(S.savedir,0), disp('batch interrupted'), return, end
-                S.savedir(end+1) = '/';
+            disp('General parameters')
+            [s, spec] = fastflow.defaultparameters;
+            pars = fn_structedit(s,spec); 
+            if isempty(pars)
+                disp 'interrupted'
+                return
+            end
+            S.parameters = pars;            
+            disp('Select data directory')
+            S.datadir = fn_getfile('DIR','Select data directory');
+            if isequal(S.datadir,0), disp('interrupted'), return, end
+            S.datadir(end+1) = '/';
+            disp('Select save directory')
+            S.savedir = fn_getfile('DIR','Select save directory');
+            if isequal(S.savedir,0), disp('interrupted'), return, end
+            S.savedir(end+1) = '/';
+            if S.parameters.saveresampled && ~strcmp(S.parameters.registration,'none')
                 disp('Select resampled data directory')
                 S.resampledir = fn_getfile('DIR','Select resampled data directory');
-                if isequal(S.resampledir,0), disp('batch interrupted'), return, end
+                if isequal(S.resampledir,0), disp('interrupted'), return, end
                 S.resampledir(end+1) = '/';
-                
-                if isempty(S.nickname)
-                    [dum default] = fileparts(S.datadir); %#ok<*ASGLU>
-                else
-                    default = S.nickname;
-                end
-                answer = inputdlg('Enter base nickname','',1,{default});
-                if isempty(answer), disp('batch interrupted'), return, end
-                S.nickname = answer{1};
-                %saveproject(S)
             end
-            if ~status(S,'datadir'), disp('could not find data directory'), end
-            if ~status(S,'resampledir'), disp('could not find resampled data directory'), end
-            
+            if isempty(S.nickname)
+                [dum default] = fileparts(S.datadir); %#ok<*ASGLU>
+            else
+                default = S.nickname;
+            end
+            answer = inputdlg('Enter base nickname','',1,{default});
+            if isempty(answer), disp('interrupted'), return, end
+            S.nickname = answer{1};
+
             % 2 - data files, conditions, sort according to experiments and conditions
-            if ~status(S,'files')
-                % data files
-                disp('file names')
-                b = dir(S.datadir);
-                a = [];
-                f = false(1,length(b));
-                
-                % try format BLABLAC01_E01B001.BLK
-                if isempty(a)
-                    for k=1:length(b)
-                        tokens = regexp(b(k).name,'.*C(\d{2}).*_E(\d{2})B(\d{2,3}).BLK$','tokens');
-                        if isempty(tokens), continue, end
-                        f(k) = true;
-                        b(k).cond  = str2double(tokens{1}{1});
-                        b(k).exp   = str2double(tokens{1}{2});
-                        b(k).block = str2double(tokens{1}{3});
-                    end
-                    a = b(f);
+            % data files
+            disp('file names')
+            b = dir(S.datadir);
+            a = [];
+            f = false(1,length(b));
+            
+            % try format BLABLAC01_E01B001.BLK
+            if isempty(a)
+                for k=1:length(b)
+                    tokens = regexp(b(k).name,'.*C(\d{2}).*_E(\d{2})B(\d{2,3}).BLK$','tokens');
+                    if isempty(tokens), continue, end
+                    f(k) = true;
+                    b(k).cond  = str2double(tokens{1}{1});
+                    b(k).exp   = str2double(tokens{1}{2});
+                    b(k).block = str2double(tokens{1}{3});
                 end
-                
-                % try format BLABLA_E01B001.BLK
-                if isempty(a)
-                    for k=1:length(b)
-                        tokens = regexp(b(k).name,'.*_E(\d{2})B(\d{2,3}).BLK$','tokens');
-                        if isempty(tokens), continue, end
-                        f(k) = true;
-                        b(k).cond  = 0;
-                        b(k).exp   = str2double(tokens{1}{1});
-                        b(k).block = str2double(tokens{1}{2});
-                    end
-                    a = b(f);
-                end
-                
-                % try format BLABLA01.a
-                if isempty(a)
-                    nstim = 0;
-                    for k=1:length(b)
-                        tokens = regexp(b(k).name,'.*(\d{2})\.([a-z])$','tokens');
-                        if isempty(tokens), continue, end
-                        if ~nstim % first time
-                            nstim = get_head([S.datadir b(k).name],'nstimuli');
-                        end
-                        f(k) = true;
-                        b(k).exp   = str2double(tokens{1}{1});
-                        b(k).block = str2double(tokens{1}{2})-(double('a')-1);
-                    end
-                    f = find(f);
-                    a = b(f)';
-                    a = repmat(a,nstim,1);
-                    for i=1:nstim
-                        [a(i,:).cond] = deal(i); 
-                        condstr = num2str(i);
-                        for k=1:length(f), a(i,k).name = [b(f(k)).name '-cond' condstr]; end
-                    end
-                    a = a(:)';
-                end
-                
-                % try mat files
-                if isempty(a)
-                    a = dir([S.datadir 'trial*_cond*.mat']);
-                    for k=1:length(a)
-                        tokens = regexp(a(k).name,'trial(\d*)_cond(\d*)','tokens');
-                        tokens = tokens{1};
-                        a(k).exp   = 1;
-                        a(k).block = k;
-                        a(k).cond  = str2double(tokens{2});
-                    end
-                end
-                
-                % try avi files
-                if isempty(a)
-                    a = dir([S.datadir '*.avi']);
-                    if ~isempty(a)
-                        [a.exp] = deal(1);
-                        for k=1:length(a), a(k).block = k; end
-                        [a.cond] = deal(0);
-                    end
-                end
-                
-                if isempty(a)
-                    error('cannot find data files: try defining another filter')
-                end
-                
-                % select which experiments to take
-                exps = unique([a.exp]);
-                answer = inputdlg('Select experiments','',1,{num2str(exps)});
-                if isempty(answer), disp('batch interrupted'), return, end
-                exps = str2num(answer{1}); %#ok<ST2NM>
-                f = ismember([a.exp],exps);
-                a = a(f);
-                % sort files
-                exps   = [a.exp]';
-                blocks = [a.block]';
-                [dum ord] = sortrows([exps blocks]);
-                a = a(ord);
-                hfg = figure('defaultuicontrolunits','normalized'); clf
-                uicontrol('pos',[.02 .12 .96 .78],'style','listbox','string',{a.name});
-                uicontrol('pos',[.02 .02 .6 .07],'style','text','string','Approve files order?');
-                h1=uicontrol('pos',[.64 .02 .15 .07],'string','OK','callback',@(u,evnt)delete(u));
-                h2=uicontrol('pos',[.83 .02 .15 .07],'string','Cancel','callback',@(u,evnt)delete([h1 u]));
-                waitfor(h1)
-                ok = ishandle(h2); % if OK pressed, h1 is deleted but not h2
-                if ishandle(hfg), close(hfg), end
-                if ~ok, disp('batch interrupted'), return, end
-                S.files = strvcat(a.name); %#ok<VCAT>
-                S.nexp = size(S.files,1);
-                
-                % check for color video
-                fname = deblank(S.files(1,:)); % first file
-                if strcmpi(fn_fileparts(fname,'ext'),'.avi')
-                    v = VideoReader(fullfile(S.datadir,fname));
-                    if ~strfind(v.VideoFormat,'RGB')
-                        error('Currently only video format with 3 color channels is handled. Please edit code for new format.')
-                    end
-                    answer = questdlg('Video appear to have 3 color channels. How do you want to convert it to grayscale?', ...
-                        '', 'Take the first channel', 'Average over 3 channels (more memory needed)', 'Take the first channel');
-                    if isempty(answer)
-                        disp 'interrupted'
-                        return
-                    end
-                    S.filesoption.average_rgb = strcmp(answer, 'Average over 3 channels (more memory needed)');    
-                end
-                
-                % conditions
-                conds = [a.cond]';
-                tmp = unique(conds)';
-                answer = inputdlg({'rest conditions:','stim1 conditions:','stim2 conditions:'}, ...
-                    'Define conditions', ...
-                    1, ...
-                    {num2str(tmp([1 end])),num2str(tmp(2:end-1)),''});
-                condstim1 = str2num(answer{2}); %#ok<ST2NM>
-                stimtrials1 = ismember(conds,condstim1);
-                condstim2 = str2num(answer{3}); %#ok<ST2NM>
-                stimtrials2 = ismember(conds,condstim2);
-                S.cond = zeros(1,S.nexp); 
-                S.cond(stimtrials1) = 1;
-                S.cond(stimtrials2) = 2;
-                %saveproject(S)
+                a = b(f);
             end
             
-            % 3 - basic data
-            if ~status(S,'base')               
-                loadrawdata(S,1)
-                %                 fname = deblank([S.datadir S.files(1,:)]);
-                %                 [dum1 dum2 ext] = fileparts(fname); %#ok<ASGLU>
-                %                 switch ext(2:end)
-                %                     case 'BLK'
-                %                         fname = regexprep(fname,'-cond\d$','');
-                %                         hdr = fast_loaddata(fname,'header');
-                %                         S.nx = hdr.xs;
-                %                         S.ny = hdr.ys;
-                %                         S.nt = hdr.nfrms;
-                %                     case 'mat'
-                %                         v = load(fname); F = fieldnames(v);
-                %                         if ~isscalar(F), error('wrong data file'), end
-                %                         data = v.(F{1}); if ndims(data)~=3, error('wrong data'), end
-                %                         [S.nx S.ny S.nt] = size(data);
-                %                     otherwise
-                %                         error('cannot open data file with extension ''%s''',ext(2:end))
-                %                 end
-                %                 fast_loaddata_global(fname)
-                [S.nx S.ny S.nt] = size(Y);
-                CS_ = mean(Y,3);
-                answer = '';
-                while ~strcmp(answer,'Yes')
-                    mask_ = fast_structure(CS_);
-                    figure(1), imagesc(CS_')
-                    figure(2), imagesc(mask_')
-                    answer = questdlg('Approve reference frame?','','Yes','No','Quit','No');
-                    close(1:2)
-                    if strcmp(answer,'Quit')
-                        return
-                    elseif strcmp(answer,'No')
-                        figure(1), fn_4Dview(Y,'2d')
-                        figure(2), fn_4Dview(Y,'2dplot')
-                        frames = fn_input('Select frames to average for reference',1:10);
-                        close(1:2)
-                        CS_ = mean(Y(:,:,frames),3);
-                    end
+            % try format BLABLA_E01B001.BLK
+            if isempty(a)
+                for k=1:length(b)
+                    tokens = regexp(b(k).name,'.*_E(\d{2})B(\d{2,3}).BLK$','tokens');
+                    if isempty(tokens), continue, end
+                    f(k) = true;
+                    b(k).cond  = 0;
+                    b(k).exp   = str2double(tokens{1}{1});
+                    b(k).block = str2double(tokens{1}{2});
                 end
-                S.CS = CS_;
-                S.mask = mask_;
-                % selected trials
-                S.trials = true(1,S.nexp);
-                % registration parameters
-                S.ISO = zeros(S.nt,1,S.nexp);
-                S.isdef = true;
-                saveproject(S)
+                a = b(f);
             end
+            
+            % try format BLABLA01.a
+            if isempty(a)
+                nstim = 0;
+                for k=1:length(b)
+                    tokens = regexp(b(k).name,'.*(\d{2})\.([a-z])$','tokens');
+                    if isempty(tokens), continue, end
+                    if ~nstim % first time
+                        nstim = get_head([S.datadir b(k).name],'nstimuli');
+                    end
+                    f(k) = true;
+                    b(k).exp   = str2double(tokens{1}{1});
+                    b(k).block = str2double(tokens{1}{2})-(double('a')-1);
+                end
+                f = find(f);
+                a = b(f)';
+                a = repmat(a,nstim,1);
+                for i=1:nstim
+                    [a(i,:).cond] = deal(i);
+                    condstr = num2str(i);
+                    for k=1:length(f), a(i,k).name = [b(f(k)).name '-cond' condstr]; end
+                end
+                a = a(:)';
+            end
+            
+            % try mat files
+            if isempty(a)
+                a = dir([S.datadir 'trial*_cond*.mat']);
+                for k=1:length(a)
+                    tokens = regexp(a(k).name,'trial(\d*)_cond(\d*)','tokens');
+                    tokens = tokens{1};
+                    a(k).exp   = 1;
+                    a(k).block = k;
+                    a(k).cond  = str2double(tokens{2});
+                end
+            end
+            
+            % try avi files
+            if isempty(a)
+                a = dir([S.datadir '*.avi']);
+                if ~isempty(a)
+                    [a.exp] = deal(1);
+                    for k=1:length(a), a(k).block = k; end
+                    [a.cond] = deal(0);
+                end
+            end
+            
+            if isempty(a)
+                error('cannot find data files: try defining another filter')
+            end
+            
+            % select which experiments to take
+            exps = unique([a.exp]);
+            answer = inputdlg('Select experiments','',1,{num2str(exps)});
+            if isempty(answer), disp('batch interrupted'), return, end
+            exps = str2num(answer{1}); %#ok<ST2NM>
+            f = ismember([a.exp],exps);
+            a = a(f);
+            % sort files
+            exps   = [a.exp]';
+            blocks = [a.block]';
+            [dum ord] = sortrows([exps blocks]);
+            a = a(ord);
+            hfg = figure('defaultuicontrolunits','normalized'); clf
+            uicontrol('pos',[.02 .12 .96 .78],'style','listbox','string',{a.name});
+            uicontrol('pos',[.02 .02 .6 .07],'style','text','string','Approve files order?');
+            h1=uicontrol('pos',[.64 .02 .15 .07],'string','OK','callback',@(u,evnt)delete(u));
+            h2=uicontrol('pos',[.83 .02 .15 .07],'string','Cancel','callback',@(u,evnt)delete([h1 u]));
+            waitfor(h1)
+            ok = ishandle(h2); % if OK pressed, h1 is deleted but not h2
+            if ishandle(hfg), close(hfg), end
+            if ~ok, disp('batch interrupted'), return, end
+            S.files = strvcat(a.name); %#ok<VCAT>
+            S.nexp = size(S.files,1);
+            
+            % check for color video
+            fname = deblank(S.files(1,:)); % first file
+            if strcmpi(fn_fileparts(fname,'ext'),'.avi')
+                v = VideoReader(fullfile(S.datadir,fname));
+                if ~strfind(v.VideoFormat,'RGB')
+                    error('Currently only video format with 3 color channels is handled. Please edit code for new format.')
+                end
+                answer = questdlg('Video appear to have 3 color channels. How do you want to convert it to grayscale?', ...
+                    '', 'Take the first channel', 'Average over 3 channels (more memory needed)', 'Take the first channel');
+                if isempty(answer)
+                    disp 'interrupted'
+                    return
+                end
+                S.filesoption.average_rgb = strcmp(answer, 'Average over 3 channels (more memory needed)');
+            end
+            
+            % conditions
+            conds = [a.cond]';
+            tmp = unique(conds)';
+            answer = inputdlg({'rest conditions:','stim1 conditions:','stim2 conditions:'}, ...
+                'Define conditions', ...
+                1, ...
+                {num2str(tmp([1 end])),num2str(tmp(2:end-1)),''});
+            condstim1 = str2num(answer{2}); %#ok<ST2NM>
+            stimtrials1 = ismember(conds,condstim1);
+            condstim2 = str2num(answer{3}); %#ok<ST2NM>
+            stimtrials2 = ismember(conds,condstim2);
+            S.cond = zeros(1,S.nexp);
+            S.cond(stimtrials1) = 1;
+            S.cond(stimtrials2) = 2;
+            
+            % 3 - basic data            
+            loadrawdata(S,1)
+            [S.nx S.ny S.nt] = size(Y);
+            CS_ = mean(Y,3);
+            answer = '';
+            while ~strcmp(answer,'Yes')
+                mask_ = fast_structure(CS_);
+                figure(1), imagesc(CS_')
+                figure(2), imagesc(mask_')
+                answer = questdlg('Approve reference frame?','','Yes','No','Quit','No');
+                close(1:2)
+                if strcmp(answer,'Quit')
+                    return
+                elseif strcmp(answer,'No')
+                    figure(1), fn_4Dview(Y,'2d')
+                    figure(2), fn_4Dview(Y,'2dplot')
+                    frames = fn_input('Select frames to average for reference',1:10);
+                    close(1:2)
+                    CS_ = mean(Y(:,:,frames),3);
+                end
+            end
+            S.CS = CS_;
+            S.mask = mask_;
+            % selected trials
+            S.trials = true(1,S.nexp);
+            % registration
+            S.id_vol = [];
+            S.ISO = zeros(S.nt,1,S.nexp);
+            S.isdef = true;
+            
+            % That's it, save!
+            saveproject(S)
         end
         function inputlinescan(S)
             % 1 - saving directory

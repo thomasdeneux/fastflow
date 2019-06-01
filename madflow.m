@@ -192,8 +192,8 @@ classdef madflow < interface
                 'callback',@(u,evt)fastflow_manage(M,'open'))
             uimenu(m,'label','save', ...
                 'callback',@(u,evt)fastflow_manage(M,'save'))
-            uimenu(m,'label','options','separator','on', ...
-                'callback',@(u,evt)fastflow_manage(M,'options'))
+            uimenu(m,'label','registration & average movie settings','separator','on', ...
+                'callback',@(u,evt)fastflow_manage(M,'settings'))
             uimenu(m,'label','interp+vol','separator','on', ...
                 'callback',@(u,evt)fastflow_manage(M,'interp+vol'))
             uimenu(m,'label','analysis', ...
@@ -305,8 +305,8 @@ classdef madflow < interface
                         delete(deletefiles{:});
                     end
                     saveproject(M.S)
-                case 'options'
-                    setoptions(M.S)
+                case 'settings'
+                    setparameters(M.S)
                 case 'interp+vol'
                     % save first
                     fastflow_manage(M,'save')
