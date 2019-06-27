@@ -34,7 +34,7 @@ classdef fast_edgesmouse < interface
             
             % check data
             global Y
-            if ~iscell(Y) && ~isequal(size(Y),[S.nx S.ny S.nt])
+            if ~iscell(Y) && ~isequal(size(Y),[S.nx S.ny S.nt]) && ~S.videoondisk(1)
                 error programming
             end
             
@@ -124,7 +124,9 @@ classdef fast_edgesmouse < interface
             % info display
             hu(10)=uicontrol('style','text');
             % movie
-            if iscell(Y)
+            if S.videoondisk(1)
+                fun = @(u,evnt)fn_movie({S.movie S.nt});
+            elseif iscell(Y)
                 fun = @(u,evnt)fn_movie(Y{E.kY});
             else
                 fun = @(u,evnt)fn_movie(Y);
@@ -673,6 +675,10 @@ classdef fast_edgesmouse < interface
             % lines data
             global Y
             if isempty(E.vsls(i).result.I0)
+                if E.S.videoondisk(1)
+                    disp 'cannot display lines data: not extracted yet'
+                    return
+                end
                 % interpolation
                 edge = E.vsls(i).edge(E.kY);
                 if iscell(Y)

@@ -279,6 +279,7 @@ classdef madflow < interface
                         'Select existing batch data file');
                     if ~fname, return, end
                     % load the fastflow object
+                    c = fn_watch(M.hf);
                     M.S = fn_loadvar(fname);
                     % update immediately savedir and nickname based on file
                     % name
@@ -304,18 +305,22 @@ classdef madflow < interface
                         deletefiles = strcat(M.S.savedir,deletefiles);
                         delete(deletefiles{:});
                     end
+                    c = fn_watch(M.hf);
                     saveproject(M.S)
                 case 'settings'
                     setparameters(M.S)
                 case 'interp+vol'
+                    c = fn_watch(M.hf);
                     % save first
                     fastflow_manage(M,'save')
                     analysis(M.S,'interp+vol')
                 case 'analysis'
                     % save first
+                    c = fn_watch(M.hf);
                     fastflow_manage(M,'save')
                     analysis(M.S)
                 case 'resultsvol'
+                    c = fn_watch(M.hf);
                     resultsvol(M.S)
                 case 'vesselcolor'
                     fast_color(M.S)
@@ -568,9 +573,9 @@ classdef madflow < interface
             res_display(M)
         end
         % image functions
-        function im_toggle(M)
-            global Y
+        function im_toggle(M)            
             if ~status(M.S,'base'), return, end
+            c = fn_watch(M.hf);
             ha  = M.grob.haim;
             % clean
             delete(M.im.ylimlisten)
@@ -599,8 +604,8 @@ classdef madflow < interface
                     set(M.vsl.hl,'visible','off')
                     % compute frame average
                     loadtrial(M.S,M.ktrial)
-                    M.im.fravg = mean(Y,3);
-                    if ~isa(Y,'double'), M.im.fravg = single(M.im.fravg); end
+                    %M.im.fravg = mean(Y,3);
+                    %if ~isa(Y,'double'), M.im.fravg = single(M.im.fravg); end
                     % cliping 
                     set(ha,'clim',[-1 1]*.02)
                     % start movie
@@ -612,27 +617,35 @@ classdef madflow < interface
                     start(M.im.timer)
             end
             function im_movieframe
-                frame = fn_float(Y(:,:,M.im.kframe)) ./ M.im.fravg;
-                frcut = frame(6:end-5,6:end-5);
+                %frame = fn_float(Y(:,:,M.im.kframe)) ./ M.im.fravg;
+                block = M.S.readframes([max(1,M.im.kframe-10) M.im.kframe]);
+                frame = block(:,:,end) ./ mean(block,3);
+                %frcut = frame(6:end-5,6:end-5);
+                frcut = frame;
                 m = mean(frcut(~isnan(frcut)));
                 frame(isnan(m)) = m;
                 frame = frame - m;
                 set(M.im.him,'cdata',frame')
                 M.im.kframe = 1+mod(M.im.kframe,M.S.nt-1);
+                % remove watch after first frame has been shown
+                if isvalid(c), delete(c), end
             end
         end
         function im_movie(M)
             global Y
             if ~M.im.doim, error programming, end
             loadtrial(M.S,M.ktrial)
-            fn_movie(Y)
+            if M.S.videoondisk(M.ktrial)
+                fn_movie({M.S.video M.S.nt})
+            else
+                fn_movie(Y)
+            end
         end
         function im_displayframe(M,doautoclip)
-            global Y
             if nargin<2, doautoclip=false; end
             if M.im.dotrialframe
                 doloadtrial = strcmp(M.S.parameters.registration,'none') ...
-                    || isequal(M.S.ycontains,[M.ktrial 1]);
+                    || isequal(M.S.videocontains,[M.ktrial 1]);
                 if ~doloadtrial
                     try
                         % read only the first frame
@@ -644,7 +657,7 @@ classdef madflow < interface
                 end
                 if doloadtrial
                     loadtrial(M.S,1)
-                    y = Y(:,:,1);
+                    y = M.S.readframes(1);
                 end
             else
                 y = M.S.CS;
@@ -2092,6 +2105,11 @@ classdef madflow < interface
                         % no volume data -> try to get it by interpolating the movie data
                         switch edgek.interpflag
                             case 'movie'
+                                if M.S.videoondisk(M.ktrial)
+                                    % do not read from data from file, this
+                                    % could take too much time
+                                    continue
+                                end
                                 success = loadtrial(M.S,M.ktrial);
                                 if ~success, continue, end
                                 I = fast_interptube(Y,edgek);
@@ -2111,6 +2129,11 @@ classdef madflow < interface
                             && isequal(resdisp(k).trial,M.ktrial)
                         % no section data -> try to get it by interpolating the movie data
                         if ~M.im.doim, error programming, end
+                        if M.S.videoondisk(M.ktrial)
+                            % do not read from data from file, this
+                            % could take too much time
+                            continue
+                        end
                         success = loadtrial(M.S,M.ktrial);
                         if ~success, continue, end
                         U = fast_vesselsection(Y,objk.edge,objk.sectionpar);
@@ -2325,6 +2348,7 @@ classdef madflow < interface
         end
         function res_estimate(M,flag)
             if isempty(M.e), return, end
+            c = fn_watch(M.hf);
             doall = any(findstr(flag,'all'));
             force = ~doall;
             switch flag
@@ -2355,7 +2379,29 @@ classdef madflow < interface
                             J0V0 = {};
                             % filter
                             I = getdataf(flow,M.ktrial);
-                            if isempty(I), error('problem: no data'), end
+                            if isempty(I)
+                                % no data: need to read the movie!
+                                s = M.S;
+                                s.loadtrial(M.ktrial)
+                                if s.videoondisk(M.ktrial)
+                                    nblock = ceil(s.nt / s.nperblock);
+                                else
+                                    nblock = 1;
+                                end
+                                fn_progress('reading data per blocks', nblock)
+                                for kblock = 1:nblock
+                                    fn_progress(kblock)
+                                    idx = [(kblock-1)*s.nperblock+1 min(s.nt,kblock*s.nperblock)];
+                                    Yk = s.readframes(idx);
+                                    datak = fast_interptube(Yk,obj.edge);
+                                    if kblock == 1
+                                        data = zeros(size(datak,1),s.nt);
+                                    end
+                                    data(:,idx(1):idx(2)) = datak;
+                                end
+                                setdatatmp(obj.edge,M.ktrial,data)
+                                I = getdataf(flow,M.ktrial);
+                            end
                             % check fasttrack initialization
                             if strcmp(method,'track') && ischar(estpar.v0)
                                 switch estpar.v0
@@ -2397,7 +2443,29 @@ classdef madflow < interface
                         case 'section'
                             % section data
                             U = getsectiondata(obj,M.ktrial);
-                            if isempty(U), error('problem: no section data'), end
+                            if isempty(U)
+                                % no data: need to read the movie!
+                                s = M.S;
+                                s.loadtrial(M.ktrial)
+                                if s.videoondisk(M.ktrial)
+                                    nblock = ceil(s.nt / s.nperblock);
+                                else
+                                    nblock = 1;
+                                end
+                                fn_progress('reading data per blocks', nblock)
+                                for kblock = 1:nblock
+                                    fn_progress(kblock)
+                                    idx = [(kblock-1)*s.nperblock+1 min(s.nt,kblock*s.nperblock)];
+                                    Yk = s.readframes(idx);
+                                    datak = fast_vesselsection(Yk,obj.edge);
+                                    if kblock == 1
+                                        data = zeros(size(datak,1),s.nt);
+                                    end
+                                    data(:,idx(1):idx(2)) = datak;
+                                end
+                                setsectiondatatmp(obj.edge,M.ktrial,data)
+                                U = getsectiondata(obj,M.ktrial);
+                            end
                             % estimate
                             profile = fast_vesselwidth(U);
                             setresulttmp(obj,M.ktrial,profile)

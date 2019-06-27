@@ -2,8 +2,8 @@ function fastflow_package
 
 %% Version
 
-version = '2.2.2'; 
-packagedate = '01-Jun-2019';
+version = '2.4.0'; 
+packagedate = '04-Jun-2019';
 
 if ~strcmp(packagedate,date)
     disp 'Please update program version'
@@ -70,6 +70,7 @@ fn_savetext({['This is fastflow version ' version]}, ...
 
 %% Open in Windows Explorer
 
+fn_cd matlab  % exist basedir, so it can be deleted if needed
 locate(basedir)
 
 

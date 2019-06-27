@@ -279,9 +279,9 @@ paramstr = {
     'KEQ = .1/DX;  % equally spaced'
     'KSS = .2/DX;  % snake smoothing'
     'KSD = 1;      % vessel diameter smoothing'
-    'KEN = 5e-3;   % energy factor'
+    'KEN = .2;   % energy factor'
     '% global factor for parameters above'
-    'DT = 1;'
+    'DT = .5;'
     '% smoothing parameters'
     'LSS = 5/DX;'
     'LSD = 20/DX;'
@@ -290,13 +290,13 @@ paramstr = {
     'WNEG = 1;'
     '% constraints on vessel diameter'
     'MINHALFD = .5;'
-    'MAXHALFD = 4;'
+    'MAXHALFD = 10;'
     '% convergence detection'
     'CONVTHR = 2e-2;'
     '% resampling'
     'DX2 = .8;'
     '% narrow tube'
-    'WFACT = .7;'
+    'WFACT = .8;'
     }; 
 
 %---
@@ -308,16 +308,16 @@ par.KEX = .02;    % extremities
 par.KEQ = .1/par.DX; % equally spaced
 par.KSS = .2/par.DX; % smoothing
 par.KSD = 1;     % smoothing
-par.KEN = 5e-3;   % energy
-par.DT = 1;
+par.KEN = .2;   % energy
+par.DT = .5;
 par.LSS = 5/par.DX;
 par.LSD = 20/par.DX;
 par.LEN = 5/par.DX;
 par.WNEG = 1;
 par.MINHALFD = .5;
-par.MAXHALFD = 4;
+par.MAXHALFD = 10;
 par.CONVTHR = 2e-2;
 par.DX2 = .8;
-par.WFACT = .7;
+par.WFACT = .8;
 
 

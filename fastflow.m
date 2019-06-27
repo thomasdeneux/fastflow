@@ -16,6 +16,7 @@ classdef fastflow < hgsetget
         nx
         ny
         nt
+        ntperfile
         CS
         nexp
         mask
@@ -28,9 +29,12 @@ classdef fastflow < hgsetget
         isdef = false;
     end
     properties (Access='private')
-        version = 7;
+        version = 7.2;
         stim
         rest
+    end
+    properties (SetAccess='private')
+        nperblock = 500; % number of frames per block when reading movie per blocks
     end
     properties (Transient, Access='private')
         fake % for backward compatibility only...
@@ -38,11 +42,15 @@ classdef fastflow < hgsetget
     properties (Transient) %, Access='private')
         hf
         closefig
-        ycontains % what does the global variable 'Y' contain: [#trial resampled?] or fakepar
+        video
+        videocontains % what does the global variable 'Y' contain: [#trial resampled?] or fakepar
         faketruespeed
     end
     properties (Transient)
         id_vol
+    end
+    properties (Dependent, SetAccess='private')
+        nedge
     end
     
     % Constructor
@@ -51,6 +59,13 @@ classdef fastflow < hgsetget
             % few initializations
             set(0,'defaultfigurecolormap',gray(64))
             fn_imvalue image
+        end
+    end
+    
+    % Get/Set
+    methods
+        function n = get.nedge(S)
+            n = length(S.edges);
         end
     end
     
@@ -80,7 +95,8 @@ classdef fastflow < hgsetget
                 return
             end
             
-            % put data into global array Y
+            % put data into global array Y (or create a VideoReader for the
+            % appopriate movie)
             loadtrial(S,1);
             
             % edges selection:
@@ -207,7 +223,10 @@ classdef fastflow < hgsetget
             if S.version<7
                 S.isdef = true; % we asssumed that S is correctly defined!
             end
-            S.version = 7;
+            if S.version<7.1
+                S.files = cellstr(S.files);
+            end
+            S.version = 7.2;
             % use the current format for movie settings
             S.parameters = fn_structmerge(fastflow.defaultparameters, ...
                 S.parameters,'skip','recursive');
@@ -404,11 +423,11 @@ classdef fastflow < hgsetget
             ok = ishandle(h2); % if OK pressed, h1 is deleted but not h2
             if ishandle(hfg), close(hfg), end
             if ~ok, disp('batch interrupted'), return, end
-            S.files = strvcat(a.name); %#ok<VCAT>
-            S.nexp = size(S.files,1);
+            S.files = {a.name};
+            S.nexp = length(S.files);
             
             % check for color video
-            fname = deblank(S.files(1,:)); % first file
+            fname = S.files{1}; % first file
             if strcmpi(fn_fileparts(fname,'ext'),'.avi')
                 v = VideoReader(fullfile(S.datadir,fname));
                 if ~strfind(v.VideoFormat,'RGB')
@@ -439,9 +458,76 @@ classdef fastflow < hgsetget
             S.cond(stimtrials2) = 2;
             
             % 3 - basic data            
-            loadrawdata(S,1)
-            [S.nx S.ny S.nt] = size(Y);
-            CS_ = mean(Y,3);
+            if S.videoondisk(1)
+                loadrawdata(S,1)
+                S.nx = S.video.Width;
+                S.ny = S.video.Height;
+                S.nt = [];
+                answer = questdlg(['Fastflow analysis requires that number of movie frames is the same for all movies. ' ...
+                    'How do you want to define this number of frames?'], '', ...
+                    'Number of frames of the first movie', 'Maximal number of frames', 'Define manually', 'Number of frames of the first movie' ...
+                );
+                if strcmp(answer,'Define manually')
+                    S.nt = fn_input('number of frames');
+                else
+                    if strcmp(answer,'Number of frames of the first movie')
+                        exps = 1;
+                    else
+                        exps = 1:S.nexp;
+                        ntall = zeros(1,S.nexp);
+                    end
+                    for kexp = exps
+                        disp(['scanning movie ' num2str(kexp) ' to get number of frames'])
+                        loadrawdata(S,kexp);
+                        imin = 1;
+                        while true
+                            pg frame imin
+                            try
+                                x = S.readframes(2*imin);
+                            catch
+                                break
+                            end
+                            imin = imin*2;
+                        end
+                        imax = 2*imin;
+                        while imax-imin > 1
+                            k = round((imin+imax)/2);
+                            pg frame k
+                            try
+                                x = S.readframes(k);
+                                % there are at least k frames
+                                imin = k;
+                            catch
+                                % there are less than k frames
+                                imax = k;
+                            end
+                        end
+                        disp(['number of frames: ' num2str(imin)])
+                        if isscalar(exps)
+                            S.nt = imin;
+                        else
+                            ntall(kexp) = imin;
+                        end
+                    end
+                    if ~isscalar(exps)
+                        S.ntperfile = ntall;
+                        S.nt = max(ntall);
+                    end
+                end
+                
+                disp('compute average frame of first movie')
+                loadrawdata(S,1)
+                n = min(S.nt,100);
+                CS_ = 0;
+                for i = round(linspace(1,S.nt,n))
+                    CS_ = CS_ + S.readframes(i) / n;
+                end
+            else
+                disp('load first movie and compute average frame')
+                loadrawdata(S,1)
+                [S.nx S.ny S.nt] = size(Y);
+                CS_ = mean(Y,3);
+            end
             answer = '';
             while ~strcmp(answer,'Yes')
                 mask_ = fast_structure(CS_);
@@ -640,7 +726,7 @@ classdef fastflow < hgsetget
                 % 1 - coregistration
                 if status(S,'movie') && ~strcmp(pars.registration,'none') ...
                         && status(S,'datadir') && status(S,'resampledir')
-                    fname = [S.resampledir strrep(deblank(S.files(ktrial,:)),'.BLK','') '.ff'];
+                    fname = [S.resampledir strrep(S.files{ktrial},'.BLK','') '.ff'];
                     fname = deblank(fname);
                     if ~any(any(S.ISO(:,:,ktrial))) ...
                             || (pars.saveresampled && ~exist(fname,'file'))
@@ -656,8 +742,23 @@ classdef fastflow < hgsetget
                 if status(S,'movie') 
                     if ~voldne(ktrial)
                         loadtrial(S,ktrial);
-                        disp('bin data')
-                        vol = fn_bin(Y,volbin([1 1 2]));
+                        if S.videoondisk(ktrial)
+                            xbin = volbin(1); tbin = volbin(2);
+                            nxbin = floor(S.nx / xbin);
+                            nybin = floor(S.ny / xbin);
+                            nblock = floor(S.nt / tbin);
+                            vol = zeros(nxbin, nybin, nblock);
+                            fn_progress('bin volume data, frame',nblock)
+                            for kblock = 1:nblock
+                                fn_progress(kblock)
+                                x = S.readframes([(kblock-1)*tbin+1 kblock*tbin]);
+                                x = fn_bin(x,xbin);
+                                vol(:,:,kblock) = mean(x,3);
+                            end
+                        else
+                            disp('bin volume data')
+                            vol = fn_bin(Y,volbin([1 1 2]));
+                        end
                         disp('save binned')
                         voldne(ktrial) = true;
                         if S.parameters.resultavgtrials
@@ -686,21 +787,46 @@ classdef fastflow < hgsetget
                     if status(S,'movie'), loadtrial(S,ktrial); end
                     disp(['vessels data (' num2str(sum(~[bedge bsection])) ' vessels and vessel sections)'])
                     drawnow
-                    for i=find(~bedge)
-                        e = edgesk(i);
-                        switch e.interpflag
-                            case 'movie'
-                                setdata(e,ktrial,fast_interptube(Y,e));
-                            case 'scan'
-                                fname = [S.datadir deblank(e.filepar.files(ktrial,:))];
-                                setdata(e,ktrial,fn_readimg(fname));
-                            case 'fake'
-                                setdata(e,ktrial,fast_fakedata(e.fakepar));
-                        end
+                    if S.videoondisk(ktrial)
+                        nblock = ceil(S.nt / S.nperblock);
+                    else
+                        nblock = 1;
                     end
-                    for i=find(~bsection)
-                        ui = sectionsk(i);
-                        setsectiondata(ui,ktrial,fast_vesselsection(Y,ui.edge,ui.sectionpar));
+                    edgedata = cell(1,S.nedge); sectiondata = cell(1,S.nedge);
+                    fn_progress('read movie block',nblock)
+                    for kblock = 1:nblock
+                        fn_progress(kblock)
+                        doset = (kblock == nblock);
+                        idx = [(kblock-1)*S.nperblock+1 min(S.nt,kblock*S.nperblock)];
+                        Yk = [];
+                        for i=find(~bedge)
+                            e = edgesk(i);
+                            switch e.interpflag
+                                case 'movie'
+                                    if isempty(Yk), Yk = S.readframes(idx); end
+                                    datak = fast_interptube(Yk,e);
+                                    if isempty(edgedata{i})
+                                        edgedata{i} = zeros([size(datak,1) S.nt]);
+                                    end
+                                    edgedata{i}(:,idx(1):idx(2)) = datak;
+                                    if doset, setdata(e,ktrial,edgedata{i}); end
+                                case 'scan'
+                                    fname = [S.datadir deblank(e.filepar.files(ktrial,:))];
+                                    setdata(e,ktrial,fn_readimg(fname));
+                                case 'fake'
+                                    setdata(e,ktrial,fast_fakedata(e.fakepar));
+                            end
+                        end
+                        for i=find(~bsection)
+                            if isempty(Yk), Yk = S.readframes(idx); end
+                            ui = sectionsk(i);
+                            datak = fast_vesselsection(Yk,ui.edge,ui.sectionpar);
+                            if isempty(sectiondata{i})
+                                sectiondata{i} = zeros([size(datak,1) S.nt]);
+                            end
+                            sectiondata{i}(:,idx(1):idx(2)) = datak;
+                            if doset, setsectiondata(ui,ktrial,datak); end
+                        end
                     end
                 end
                 
@@ -977,18 +1103,25 @@ classdef fastflow < hgsetget
         %             x = filt2(x,sigma)./filt2(m,sigma);
         %             S.faketruespeed = x; % TODO: handle true speed...
         %         end
+        function b = videoondisk(S,ktrial)
+            if nargin<2
+                ktrial = S.videocontains(1);
+            end
+            ext = fn_fileparts(S.files{ktrial}, 'ext');
+            b = strcmpi(ext,'.avi');
+        end
         function success = loadrawdata(S,ktrial)
             global Y
             % function loadrawdata(S,ktrial)
             success = false;
-            if isequal(S.ycontains,[ktrial 0])
+            if isequal(S.videocontains,[ktrial 0])
                 % global variable 'Y' already contains the desired data,
                 % nothing to do
                 success = true;
                 return
             end
-            S.ycontains = []; % in case function will be interrupted in the middle
-            fname = [S.datadir deblank(S.files(ktrial,:))];
+            S.videocontains = []; % in case function will be interrupted in the middle
+            fname = [S.datadir S.files{ktrial}];
             % how to read file
             [dum1 dum2 ext] = fileparts(fname);  %#ok<ASGLU>
             ftype = ext(2:end);
@@ -1004,6 +1137,10 @@ classdef fastflow < hgsetget
             if ~exist(fname,'file'),
                 if nargout==1,return, else error('cannot find raw data file'), end
             end
+            % for some file format the whole movie is loaded into Matlab,
+            % but for some others a vieo reader is initialized and nothing
+            % is loaded yet
+            [Y S.video] = deal([]);
             switch lower(ftype)
                 case 'blk'
                     fast_loaddata_global(fname);
@@ -1016,23 +1153,52 @@ classdef fastflow < hgsetget
                     Y = v.(F{1});
                     if ~strcmp(class(Y),'double'), Y = single(Y); end
                 case 'avi'
-                    x = fn_readmovie(fname, 'nopermute');
-                    if S.filesoption.average_rgb
-                        x = squeeze(mean(x,3)); % transform color movie into unidim movie
-                    else
-                        x = squeeze(x(:,:,1,:));
-                    end
-                    if isa(x,'double'), x = single(x); end
-                    Y = permute(x, [2 1 3]);
+                    %                     x = fn_readmovie(fname, 'nopermute');
+                    %                     if S.filesoption.average_rgb
+                    %                         x = squeeze(mean(x,3)); % transform color movie into unidim movie
+                    %                     else
+                    %                         x = squeeze(x(:,:,1,:));
+                    %                     end
+                    %                     if isa(x,'double'), x = single(x); end
+                    %                     Y = permute(x, [2 1 3]);
+                    S.video = VideoReader(fname);
                 otherwise
                     error('cannot open file of type ''%s''',ftype)
             end
             % finish
-            S.ycontains = [ktrial 0];
+            S.videocontains = [ktrial 0];
             if nargout==0
                 clear success
             else
                 success = true;
+            end
+        end
+        function x = readframes(S,k)
+            % k is either a scalar or a 2-element vector [kstart kstop]
+            global Y
+            if isa(S.video,'VideoReader')
+                if ~isempty(S.ntperfile)
+                    ktrial = S.videocontains(1);
+                    kmax = S.ntperfile(ktrial);
+                    if all(k > kmax)
+                        x = zeros(S.nx,S.ny,k(end)-k(1)+1);
+                    elseif k(2) > kmax
+                        nmiss = k(2) - kmax;
+                        k(2) = kmax;
+                    else 
+                        nmiss = 0;
+                    end
+                else
+                    nmiss = 0;                    
+                end
+                x = S.video.read(k);
+                x = mean(x,3);
+                x = permute(x,[2 1 4 3]);
+                if nmiss
+                    x = cat(3,x,ones(S.nx,S.ny,nmiss)*mean(x(:)));
+                end
+            else
+                x = Y(:,:,k(1):k(end));
             end
         end
         function success = loadtrial(S,ktrial)
@@ -1047,7 +1213,7 @@ classdef fastflow < hgsetget
             regmethod = S.parameters.registration;
             doreg = ~strcmp(regmethod,'none');
             containflag = [ktrial doreg];
-            if isequal(S.ycontains,containflag)
+            if isequal(S.videocontains,containflag)
                 % global variable 'Y' already contains the desired data,
                 % nothing to do
                 success = true;
@@ -1060,13 +1226,13 @@ classdef fastflow < hgsetget
                 return
             else
                 if ~status(S,'resampledir'), disp('could not find resampled data directory'), end
-                fname = [S.resampledir strrep(deblank(S.files(ktrial,:)),'.BLK','') '.ff'];
+                fname = [S.resampledir strrep(S.files{ktrial},'.BLK','') '.ff'];
                 if exist(fname,'file')
                     % resampled data exists - load it
                     disp('load resampled data'), drawnow
-                    S.ycontains = []; % if computation will be interrupted, data in global Y might be corrupted
+                    S.videocontains = []; % if computation will be interrupted, data in global Y might be corrupted
                     fast_load2bytes_global(fname);
-                    S.ycontains = containflag;
+                    S.videocontains = containflag;
                 else
                     success = loadrawdata(S,ktrial);
                     if ~success
@@ -1092,7 +1258,7 @@ classdef fastflow < hgsetget
                                 end
                             end
                         end
-                        S.ycontains = []; % in computation will be interrupted, data in global Y might be corrupted
+                        S.videocontains = []; % in computation will be interrupted, data in global Y might be corrupted
                         x = fast_recalage_global(S.CS,regmethod,iso0);
                         if ktrial==1
                             % might change the size of S.ISO
@@ -1105,10 +1271,11 @@ classdef fastflow < hgsetget
                         saveproject(S)
                     else
                         % registration done but not resampling - do it               
-                        S.ycontains = []; % in computation will be interrupted, data in global Y might be corrupted
+                        S.videocontains = []; % in computation will be interrupted, data in global Y might be corrupted
                         fast_recalage_global(regmethod,S.ISO(:,:,ktrial));
                     end
-                    S.ycontains = containflag;
+                    S.video = [];
+                    S.videocontains = containflag;
                     if S.parameters.saveresampled && status(S,'resampledir')
                         disp('save resampled data'), drawnow
                         fast_save2bytes(Y,fname)
@@ -1130,7 +1297,7 @@ classdef fastflow < hgsetget
                 if isnumeric(a), frames = a; else classname = a; end
             end
             if ~status(S,'movie'), error('you are not in movie mode'), end
-            fname = [S.resampledir strrep(S.files(ktrial,:),'.BLK','.ff')];
+            fname = [S.resampledir strrep(S.files{ktrial},'.BLK','.ff')];
             if ~S.parameters.doregistration || ~S.parameters.saveresampled 
                 error('this part is not implemented yet')
             end
@@ -1145,7 +1312,7 @@ classdef fastflow < hgsetget
         end
         function access(S) %#ok<MANU>
             keyboard
-        end
+        end        
     end
 end
 
