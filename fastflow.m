@@ -690,7 +690,7 @@ classdef fastflow < hgsetget
             end
             
             % create/load file of saved resampled volume
-            if status(S,'movie')
+            if false %status(S,'movie')
                 disp('check volume file'), drawnow
                 fvolname = [S.savedir 'volume' S.id_vol '.mat'];
                 okfile = exist(fvolname,'file');
@@ -739,7 +739,7 @@ classdef fastflow < hgsetget
                 end                
                 
                 % 2 - resample the whole movie (volume)
-                if status(S,'movie') 
+                if false %status(S,'movie') 
                     if ~voldne(ktrial)
                         loadtrial(S,ktrial);
                         if S.videoondisk(ktrial)
@@ -825,7 +825,7 @@ classdef fastflow < hgsetget
                                 sectiondata{i} = zeros([size(datak,1) S.nt]);
                             end
                             sectiondata{i}(:,idx(1):idx(2)) = datak;
-                            if doset, setsectiondata(ui,ktrial,datak); end
+                            if doset, setsectiondata(ui,ktrial,sectiondata{i}); end
                         end
                     end
                 end
