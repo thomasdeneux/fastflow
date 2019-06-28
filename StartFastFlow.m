@@ -2,14 +2,14 @@ function StartFastFlow(varargin)
 
 % Add relevant folders to the path
 basedir = fileparts(which('StartFastFlow'));
-if exist(fullfile(basedir,'madflow.m'), 'file')
-    % we are executing a 'StartFastFlow' that is inside the fastflow folder
-    % -> basedir is one step above
-    basedir = fileparts(basedir);
-elseif exist(fullfile(basedir,'brick'), 'dir')
+if exist(fullfile(basedir,'brick'), 'dir')
     % we are executing a 'StartFastFlow' that is above the brick, colormaps
     % and fastflow folders
     addpath(basedir)
+elseif exist(fullfile(basedir,'madflow.m'), 'file')
+    % we are executing a 'StartFastFlow' that is inside the fastflow folder
+    % -> basedir is one step above
+    basedir = fileparts(basedir);
 else
     warning('Failed to locate brick, colormaps and fastflow folders')
 end
